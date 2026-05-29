@@ -2,32 +2,137 @@ import { buildBillingHeaderValue } from './cch.ts'
 import {
   CLAUDE_CODE_ENTRYPOINT,
   CLAUDE_CODE_IDENTITY,
+  CLAUDE_CODE_OFFICIAL_IDENTITY,
   OPENCODE_IDENTITY_PREFIX,
   PARAGRAPH_REMOVAL_ANCHORS,
   REQUIRED_BETAS,
   TEXT_REPLACEMENTS,
-  TOOL_PREFIX,
   USER_AGENT,
 } from './constants.ts'
 
-/**
- * Prefix a tool name with TOOL_PREFIX and uppercase the first character.
- * Claude Code uses PascalCase tool names (e.g. mcp_Bash, mcp_Read);
- * lowercase names (mcp_bash, mcp_read) are flagged as non-Claude-Code clients.
- */
-function prefixName(name: string): string {
-  return `${TOOL_PREFIX}${name.charAt(0).toUpperCase()}${name.slice(1)}`
+const TOOL_NAME_TO_CLAUDE_CODE: Record<string, string> = {
+  bash: 'Bash',
+  edit: 'Edit',
+  glob: 'Glob',
+  grep: 'Grep',
+  question: 'Question',
+  read: 'Read',
+  skill: 'Skill',
+  task: 'Task',
+  todowrite: 'TodoWrite',
+  webfetch: 'WebFetch',
+  websearch: 'WebSearch',
+  write: 'Write',
 }
 
-/**
- * Reverse prefixName: strip TOOL_PREFIX and restore the original leading case.
- */
-function unprefixName(name: string): string {
-  // StructuredOutput is still used as StructuredOutput
-  if (name === 'StructuredOutput') {
-    return name
-  }
+const TOOL_NAME_FROM_CLAUDE_CODE = Object.fromEntries(
+  Object.entries(TOOL_NAME_TO_CLAUDE_CODE).map(([opencode, claudeCode]) => [
+    claudeCode,
+    opencode,
+  ]),
+)
+
+const TOOL_INPUT_TO_CLAUDE_CODE: Record<string, Record<string, string>> = {
+  edit: {
+    filePath: 'file_path',
+    oldString: 'old_string',
+    newString: 'new_string',
+    replaceAll: 'replace_all',
+  },
+  read: {
+    filePath: 'file_path',
+  },
+  write: {
+    filePath: 'file_path',
+  },
+}
+
+const TOOL_INPUT_FROM_CLAUDE_CODE = Object.fromEntries(
+  Object.entries(TOOL_INPUT_TO_CLAUDE_CODE).flatMap(([, keys]) =>
+    Object.entries(keys).map(([opencode, claudeCode]) => [
+      claudeCode,
+      opencode,
+    ]),
+  ),
+)
+
+function capitalizeName(name: string): string {
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)}`
+}
+
+function uncapitalizeName(name: string): string {
   return `${name.charAt(0).toLowerCase()}${name.slice(1)}`
+}
+
+function toClaudeCodeToolName(name: string): string {
+  if (name === 'StructuredOutput') return name
+  return TOOL_NAME_TO_CLAUDE_CODE[name] ?? capitalizeName(name)
+}
+
+function fromClaudeCodeToolName(name: string): string {
+  if (name === 'StructuredOutput') return name
+  if (name.startsWith('mcp_')) return fromClaudeCodeToolName(name.slice(4))
+  return TOOL_NAME_FROM_CLAUDE_CODE[name] ?? uncapitalizeName(name)
+}
+
+function renameKeys(value: unknown, keyMap: Record<string, string>): unknown {
+  if (!isRecord(value)) return value
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [keyMap[key] ?? key, item]),
+  )
+}
+
+function rewriteJsonSchemaKeys(
+  schema: unknown,
+  keyMap: Record<string, string>,
+): unknown {
+  if (Array.isArray(schema)) {
+    return schema.map((item) => rewriteJsonSchemaKeys(item, keyMap))
+  }
+  if (!isRecord(schema)) return schema
+
+  return Object.fromEntries(
+    Object.entries(schema).map(([key, value]) => {
+      if (key === 'description') {
+        return [key, rewriteDescriptionKeys(value, keyMap)]
+      }
+
+      if (key === 'properties' && isRecord(value)) {
+        const properties = renameKeys(value, keyMap) as Record<string, unknown>
+        return [
+          key,
+          Object.fromEntries(
+            Object.entries(properties).map(([property, propertySchema]) => [
+              property,
+              rewriteJsonSchemaKeys(propertySchema, keyMap),
+            ]),
+          ),
+        ]
+      }
+
+      if (key === 'required' && Array.isArray(value)) {
+        return [
+          key,
+          value.map((item) =>
+            typeof item === 'string' ? (keyMap[item] ?? item) : item,
+          ),
+        ]
+      }
+
+      return [key, rewriteJsonSchemaKeys(value, keyMap)]
+    }),
+  )
+}
+
+function rewriteDescriptionKeys(
+  description: unknown,
+  keyMap: Record<string, string>,
+): unknown {
+  if (typeof description !== 'string') return description
+  return Object.entries(keyMap).reduce(
+    (result, [from, to]) => result.split(from).join(to),
+    description,
+  )
 }
 
 export type FetchInput = string | URL | Request
@@ -99,16 +204,34 @@ export function setOAuthHeaders(
 }
 
 /**
- * Add TOOL_PREFIX to tool names in the request body.
- * Prefixes both tool definitions and tool_use blocks in messages.
+ * Rewrite OpenCode tool definitions and historical tool_use blocks to the
+ * Claude Code-facing shape Anthropic sees from the official CLI.
  */
 export function prefixToolNames(parsed: Record<string, unknown>): string {
   if (parsed.tools && Array.isArray(parsed.tools)) {
     parsed.tools = parsed.tools.map(
-      (tool: { name?: string; [k: string]: unknown }) => ({
-        ...tool,
-        name: tool.name ? prefixName(tool.name) : tool.name,
-      }),
+      (tool: { name?: string; [k: string]: unknown }) => {
+        const { eager_input_streaming: _eager, ...rest } = tool
+        const opencodeName = tool.name
+          ? fromClaudeCodeToolName(tool.name)
+          : undefined
+        const keyMap = opencodeName
+          ? TOOL_INPUT_TO_CLAUDE_CODE[opencodeName]
+          : undefined
+        const rewritten = {
+          ...rest,
+          ...(tool.name
+            ? { name: toClaudeCodeToolName(opencodeName ?? tool.name) }
+            : {}),
+          ...(keyMap
+            ? {
+                description: rewriteDescriptionKeys(tool.description, keyMap),
+                input_schema: rewriteJsonSchemaKeys(tool.input_schema, keyMap),
+              }
+            : {}),
+        }
+        return rewritten
+      },
     )
   }
 
@@ -125,7 +248,13 @@ export function prefixToolNames(parsed: Record<string, unknown>): string {
         if (msg.content && Array.isArray(msg.content)) {
           msg.content = msg.content.map((block) => {
             if (block.type === 'tool_use' && block.name) {
-              return { ...block, name: prefixName(block.name) }
+              const opencodeName = fromClaudeCodeToolName(block.name)
+              const keyMap = TOOL_INPUT_TO_CLAUDE_CODE[opencodeName]
+              return {
+                ...block,
+                name: toClaudeCodeToolName(opencodeName),
+                ...(keyMap ? { input: renameKeys(block.input, keyMap) } : {}),
+              }
             }
             return block
           })
@@ -139,13 +268,24 @@ export function prefixToolNames(parsed: Record<string, unknown>): string {
 }
 
 /**
- * Strip TOOL_PREFIX from tool names in streaming response text.
+ * Convert Claude Code-facing streamed tool calls back to OpenCode names and
+ * input keys before the AI SDK parses them.
  */
 export function stripToolPrefix(text: string): string {
-  return text.replace(
-    /"name"\s*:\s*"mcp_([^"]+)"/g,
-    (_match, name: string) => `"name": "${unprefixName(name)}"`,
+  let result = text.replace(
+    /"name"\s*:\s*"([^"]+)"/g,
+    (_match, name: string) => `"name": "${fromClaudeCodeToolName(name)}"`,
   )
+
+  for (const [from, to] of Object.entries(TOOL_INPUT_FROM_CLAUDE_CODE)) {
+    result = result
+      .split(`"${from}"`)
+      .join(`"${to}"`)
+      .split(`\\"${from}\\"`)
+      .join(`\\"${to}\\"`)
+  }
+
+  return result
 }
 
 /**
@@ -277,6 +417,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value)
 }
 
+function hasOfficialClaudeCodeIdentity(blocks: SystemBlock[]): boolean {
+  return blocks.some((block) =>
+    block.text.trimStart().startsWith(CLAUDE_CODE_OFFICIAL_IDENTITY),
+  )
+}
+
 /**
  * Sanitize system prompt and prepend Claude Code identity.
  * Handles all Anthropic API system formats: undefined, string, or array of text blocks.
@@ -292,13 +438,18 @@ export function prependClaudeCodeIdentity(system: unknown): SystemBlock[] {
   if (typeof system === 'string') {
     const sanitized = sanitizeSystemText(system)
     if (sanitized === CLAUDE_CODE_IDENTITY) return [identityBlock]
+    if (sanitized.startsWith(CLAUDE_CODE_OFFICIAL_IDENTITY)) {
+      return [{ type: 'text', text: sanitized }]
+    }
     return [identityBlock, { type: 'text', text: sanitized }]
   }
 
   if (isRecord(system)) {
     const type = typeof system.type === 'string' ? system.type : 'text'
     const text = typeof system.text === 'string' ? system.text : ''
-    return [identityBlock, { ...system, type, text: sanitizeSystemText(text) }]
+    const sanitized = { ...system, type, text: sanitizeSystemText(text) }
+    if (hasOfficialClaudeCodeIdentity([sanitized])) return [sanitized]
+    return [identityBlock, sanitized]
   }
 
   if (!Array.isArray(system)) return [identityBlock]
@@ -328,6 +479,10 @@ export function prependClaudeCodeIdentity(system: unknown): SystemBlock[] {
     return sanitized
   }
 
+  if (hasOfficialClaudeCodeIdentity(sanitized)) {
+    return sanitized
+  }
+
   return [identityBlock, ...sanitized]
 }
 
@@ -352,8 +507,9 @@ export function rewriteRequestBody(body: string): string {
     // Sanitize system prompt and prepend Claude Code identity
     parsed.system = prependClaudeCodeIdentity(parsed.system)
 
-    // Prepend the billing header as a separate system block so the
-    // final layout is: [billing header, identity, ...rest]
+    // Prepend the billing marker as a separate system block. When the prompt
+    // already carries the official Claude Code identity, don't also add the
+    // older Agent SDK identity block.
     if (billingHeader && Array.isArray(parsed.system)) {
       parsed.system.unshift({ type: 'text', text: billingHeader })
     }
@@ -373,18 +529,29 @@ export function createStrippedStream(response: Response): Response {
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
+  let buffered = ''
 
   const stream = new ReadableStream({
-    async pull(controller) {
-      const { done, value } = await reader.read()
-      if (done) {
-        controller.close()
-        return
-      }
+    async start(controller) {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) {
+          const remaining = buffered + decoder.decode()
+          if (remaining)
+            controller.enqueue(encoder.encode(stripToolPrefix(remaining)))
+          controller.close()
+          return
+        }
 
-      let text = decoder.decode(value, { stream: true })
-      text = stripToolPrefix(text)
-      controller.enqueue(encoder.encode(text))
+        buffered += decoder.decode(value, { stream: true })
+        const lines = buffered.split('\n')
+        buffered = lines.pop() ?? ''
+        if (lines.length > 0) {
+          controller.enqueue(
+            encoder.encode(`${lines.map(stripToolPrefix).join('\n')}\n`),
+          )
+        }
+      }
     },
   })
 

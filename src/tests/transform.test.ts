@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from 'bun:test'
 import dedent from 'dedent'
 import {
   CLAUDE_CODE_IDENTITY,
+  CLAUDE_CODE_OFFICIAL_IDENTITY,
   OPENCODE_IDENTITY_PREFIX,
   REQUIRED_BETAS,
 } from '../constants'
@@ -138,32 +139,102 @@ describe('setOAuthHeaders', () => {
 })
 
 describe('prefixToolNames', () => {
-  test('prefixes tool definition names', () => {
+  test('maps tool definition names to Claude Code names', () => {
     const body = {
       tools: [
-        { name: 'read_file', type: 'function' },
-        { name: 'write_file', type: 'function' },
+        { name: 'bash', type: 'function' },
+        { name: 'todowrite', type: 'function' },
+        { name: 'webfetch', type: 'function' },
       ],
     }
     const result = JSON.parse(prefixToolNames(body))
-    expect(result.tools[0].name).toBe('mcp_Read_file')
-    expect(result.tools[1].name).toBe('mcp_Write_file')
+    expect(result.tools[0].name).toBe('Bash')
+    expect(result.tools[1].name).toBe('TodoWrite')
+    expect(result.tools[2].name).toBe('WebFetch')
   })
 
-  test('prefixes tool_use block names in messages', () => {
+  test('rewrites tool schema parameter keys and removes eager streaming', () => {
+    const body = {
+      tools: [
+        {
+          name: 'edit',
+          description: 'Replace oldString with newString in filePath.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              filePath: { type: 'string', description: 'Path for filePath' },
+              oldString: { type: 'string' },
+              newString: {
+                type: 'string',
+                description: 'Must be different from oldString',
+              },
+              replaceAll: {
+                type: 'boolean',
+                description: 'Replace all oldString matches',
+              },
+            },
+            required: ['filePath', 'oldString', 'newString'],
+          },
+          eager_input_streaming: true,
+        },
+      ],
+    }
+    const result = JSON.parse(prefixToolNames(body))
+    expect(result.tools[0].name).toBe('Edit')
+    expect(result.tools[0].description).toBe(
+      'Replace old_string with new_string in file_path.',
+    )
+    expect(Object.keys(result.tools[0].input_schema.properties)).toEqual([
+      'file_path',
+      'old_string',
+      'new_string',
+      'replace_all',
+    ])
+    expect(result.tools[0].input_schema.required).toEqual([
+      'file_path',
+      'old_string',
+      'new_string',
+    ])
+    expect(result.tools[0].input_schema.properties.file_path.description).toBe(
+      'Path for file_path',
+    )
+    expect(result.tools[0].input_schema.properties.new_string.description).toBe(
+      'Must be different from old_string',
+    )
+    expect(
+      result.tools[0].input_schema.properties.replace_all.description,
+    ).toBe('Replace all old_string matches')
+    expect(result.tools[0].eager_input_streaming).toBeUndefined()
+  })
+
+  test('maps tool_use block names and inputs in messages', () => {
     const body = {
       messages: [
         {
           role: 'assistant',
           content: [
-            { type: 'tool_use', name: 'bash', id: '1' },
+            {
+              type: 'tool_use',
+              name: 'edit',
+              id: '1',
+              input: {
+                filePath: '/tmp/file.txt',
+                oldString: 'old',
+                newString: 'new',
+              },
+            },
             { type: 'text', text: 'hello' },
           ],
         },
       ],
     }
     const result = JSON.parse(prefixToolNames(body))
-    expect(result.messages[0].content[0].name).toBe('mcp_Bash')
+    expect(result.messages[0].content[0].name).toBe('Edit')
+    expect(result.messages[0].content[0].input).toEqual({
+      file_path: '/tmp/file.txt',
+      old_string: 'old',
+      new_string: 'new',
+    })
     expect(result.messages[0].content[1].type).toBe('text')
   })
 
@@ -199,16 +270,39 @@ describe('prefixToolNames', () => {
 })
 
 describe('stripToolPrefix', () => {
-  test('strips mcp_ prefix from tool names', () => {
-    const text = '{"name": "mcp_read_file"}'
-    expect(stripToolPrefix(text)).toBe('{"name": "read_file"}')
+  test('maps Claude Code tool names back to OpenCode names', () => {
+    const text = '{"name": "TodoWrite"}'
+    expect(stripToolPrefix(text)).toBe('{"name": "todowrite"}')
   })
 
-  test('strips multiple prefixed names', () => {
-    const text = '{"name": "mcp_tool_a"} and {"name": "mcp_tool_b"}'
+  test('maps multiple Claude Code tool names', () => {
+    const text = '{"name": "WebFetch"} and {"name": "WebSearch"}'
     const result = stripToolPrefix(text)
-    expect(result).toContain('"name": "tool_a"')
-    expect(result).toContain('"name": "tool_b"')
+    expect(result).toContain('"name": "webfetch"')
+    expect(result).toContain('"name": "websearch"')
+  })
+
+  test('still handles legacy mcp-prefixed names', () => {
+    const text = '{"name": "mcp_Read"}'
+    expect(stripToolPrefix(text)).toBe('{"name": "read"}')
+  })
+
+  test('maps response input keys back to camelCase', () => {
+    const text =
+      '{"name": "Edit", "input": {"file_path": "/tmp/a", "old_string": "a", "new_string": "b"}}'
+    const result = stripToolPrefix(text)
+    expect(result).toContain('"name": "edit"')
+    expect(result).toContain('"filePath"')
+    expect(result).toContain('"oldString"')
+    expect(result).toContain('"newString"')
+  })
+
+  test('maps escaped partial_json input keys back to camelCase', () => {
+    const text =
+      'data: {"delta":{"type":"input_json_delta","partial_json":"{\\"file_path\\":\\"/tmp/a\\",\\"replace_all\\":true}"}}\n\n'
+    const result = stripToolPrefix(text)
+    expect(result).toContain('\\"filePath\\"')
+    expect(result).toContain('\\"replaceAll\\"')
   })
 
   test('does not strip names without mcp_ prefix', () => {
@@ -217,8 +311,8 @@ describe('stripToolPrefix', () => {
   })
 
   test('handles whitespace variations in JSON', () => {
-    const text = '{"name"  :  "mcp_tool"}'
-    expect(stripToolPrefix(text)).toBe('{"name": "tool"}')
+    const text = '{"name"  :  "Read"}'
+    expect(stripToolPrefix(text)).toBe('{"name": "read"}')
   })
 })
 
@@ -406,10 +500,10 @@ describe('isInsecure', () => {
 })
 
 describe('createStrippedStream', () => {
-  test('strips tool prefixes from streamed response body', async () => {
+  test('maps tool names from streamed response body', async () => {
     const chunks = [
-      'data: {"type":"content_block_start","content_block":{"type":"tool_use","name":"mcp_bash"}}\n\n',
-      'data: {"type":"content_block_start","content_block":{"type":"tool_use","name":"mcp_read"}}\n\n',
+      'data: {"type":"content_block_start","content_block":{"type":"tool_use","name":"Bash"}}\n\n',
+      'data: {"type":"content_block_start","content_block":{"type":"tool_use","name":"Read"}}\n\n',
     ]
 
     const stream = new ReadableStream({
@@ -428,8 +522,28 @@ describe('createStrippedStream', () => {
     const text = await stripped.text()
     expect(text).toContain('"name": "bash"')
     expect(text).toContain('"name": "read"')
-    expect(text).not.toContain('mcp_bash')
-    expect(text).not.toContain('mcp_read')
+    expect(text).not.toContain('"name":"Bash"')
+    expect(text).not.toContain('"name":"Read"')
+  })
+
+  test('maps tool names split across streamed chunks', async () => {
+    const chunks = [
+      'data: {"type":"content_block_start","content_block":{"type":"tool_use","name":"Web',
+      'Fetch"}}\n\n',
+    ]
+
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder()
+        for (const chunk of chunks) {
+          controller.enqueue(encoder.encode(chunk))
+        }
+        controller.close()
+      },
+    })
+
+    const text = await createStrippedStream(new Response(stream)).text()
+    expect(text).toContain('"name": "webfetch"')
   })
 
   test('preserves response status and headers', async () => {
@@ -606,6 +720,29 @@ describe('prependClaudeCodeIdentity', () => {
     expect(result[1]?.text).toBe('Some assistant prompt')
   })
 
+  test('does not prepend SDK identity when official Claude Code identity is present', () => {
+    const text = `${CLAUDE_CODE_OFFICIAL_IDENTITY}\nYou are an interactive agent.`
+    const result = prependClaudeCodeIdentity(text)
+    expect(result).toHaveLength(1)
+    expect(result[0]?.text).toBe(text)
+  })
+
+  test('does not prepend SDK identity to official Claude Code text blocks', () => {
+    const system = [
+      {
+        type: 'text',
+        text: `${CLAUDE_CODE_OFFICIAL_IDENTITY}\nYou are an interactive agent.`,
+      },
+      { type: 'text', text: 'Environment context' },
+    ]
+    const result = prependClaudeCodeIdentity(system)
+    expect(result).toHaveLength(2)
+    expect(result[0]?.text).toStartWith(CLAUDE_CODE_OFFICIAL_IDENTITY)
+    expect(result.some((block) => block.text === CLAUDE_CODE_IDENTITY)).toBe(
+      false,
+    )
+  })
+
   test('sanitizes array of text blocks', () => {
     const system = [
       {
@@ -639,14 +776,14 @@ describe('prependClaudeCodeIdentity', () => {
 })
 
 describe('rewriteRequestBody', () => {
-  test('prefixes tool names and rewrites system prompt', () => {
+  test('maps tool names and rewrites system prompt', () => {
     const body = JSON.stringify({
       tools: [{ name: 'bash', type: 'function' }],
       messages: [{ role: 'user', content: 'hello world test message' }],
       system: 'You are a helpful assistant.',
     })
     const result = JSON.parse(rewriteRequestBody(body))
-    expect(result.tools[0].name).toBe('mcp_Bash')
+    expect(result.tools[0].name).toBe('Bash')
     // system[0] = billing header, system[1] = identity, system[2] = rest
     expect(result.system[0].text).toContain('x-anthropic-billing-header')
     expect(result.system[1].text).toBe(CLAUDE_CODE_IDENTITY)
@@ -662,6 +799,22 @@ describe('rewriteRequestBody', () => {
     expect(result.system).toHaveLength(2)
     expect(result.system[0].text).toContain('x-anthropic-billing-header')
     expect(result.system[1].text).toBe(CLAUDE_CODE_IDENTITY)
+  })
+
+  test('keeps official Claude Code prompt as the only identity', () => {
+    const body = JSON.stringify({
+      messages: [{ role: 'user', content: 'hello world test message' }],
+      system: `${CLAUDE_CODE_OFFICIAL_IDENTITY}\nYou are an interactive agent.`,
+    })
+    const result = JSON.parse(rewriteRequestBody(body))
+    expect(result.system).toHaveLength(2)
+    expect(result.system[0].text).toContain('x-anthropic-billing-header')
+    expect(result.system[1].text).toStartWith(CLAUDE_CODE_OFFICIAL_IDENTITY)
+    expect(
+      result.system.some(
+        (block: { text: string }) => block.text === CLAUDE_CODE_IDENTITY,
+      ),
+    ).toBe(false)
   })
 
   test('returns original string on invalid JSON', () => {
@@ -734,7 +887,7 @@ describe('rewriteRequestBody', () => {
 
     // User messages are untouched
     expect(result.messages[0].content).toBe('Help me fix this bug')
-    expect(result.messages[1].content[0].name).toBe('mcp_Bash')
+    expect(result.messages[1].content[0].name).toBe('Bash')
   })
 
   test('handles body with no messages array', () => {

@@ -166,7 +166,7 @@ describe('auth.loader', () => {
     expect(result.fetch).toBeFunction()
   })
 
-  test('fetch wrapper sets OAuth headers and prefixes tools', async () => {
+  test('fetch wrapper sets OAuth headers and maps tools', async () => {
     let capturedHeaders: Headers | undefined
     let capturedBody: string | undefined
 
@@ -205,8 +205,7 @@ describe('auth.loader', () => {
     expect(capturedHeaders!.get('anthropic-beta')).toContain('oauth-2025-04-20')
 
     const parsedBody = JSON.parse(capturedBody!)
-    // Tool name should be prefixed
-    expect(parsedBody.tools[0].name).toBe('mcp_Bash')
+    expect(parsedBody.tools[0].name).toBe('Bash')
     // Three-block layout: billing header, identity, rest
     expect(parsedBody.system).toHaveLength(3)
     expect(parsedBody.system[0].text).toContain('x-anthropic-billing-header')
@@ -366,13 +365,13 @@ describe('auth.loader', () => {
     expect(tokenRefreshCalls).toBe(1)
   })
 
-  test('fetch wrapper strips tool prefix from streaming response', async () => {
+  test('fetch wrapper maps tool names from streaming response', async () => {
     const encoder = new TextEncoder()
     const responseStream = new ReadableStream({
       start(controller) {
         controller.enqueue(
           encoder.encode(
-            'data: {"content_block":{"type":"tool_use","name":"mcp_bash"}}\n\n',
+            'data: {"content_block":{"type":"tool_use","name":"TodoWrite"}}\n\n',
           ),
         )
         controller.close()
@@ -404,8 +403,8 @@ describe('auth.loader', () => {
     )
 
     const text = await response.text()
-    expect(text).toContain('"name": "bash"')
-    expect(text).not.toContain('mcp_bash')
+    expect(text).toContain('"name": "todowrite"')
+    expect(text).not.toContain('TodoWrite')
   })
 
   test('concurrent expired token refresh should deduplicate to a single token request', async () => {
