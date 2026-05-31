@@ -166,7 +166,7 @@ describe('auth.loader', () => {
     expect(result.fetch).toBeFunction()
   })
 
-  test('fetch wrapper sets OAuth headers and maps tools', async () => {
+  test('fetch wrapper sets OAuth headers and passes body through', async () => {
     let capturedHeaders: Headers | undefined
     let capturedBody: string | undefined
 
@@ -204,17 +204,7 @@ describe('auth.loader', () => {
     expect(capturedHeaders!.get('x-api-key')).toBeNull()
     expect(capturedHeaders!.get('anthropic-beta')).toContain('oauth-2025-04-20')
 
-    const parsedBody = JSON.parse(capturedBody!)
-    expect(parsedBody.tools[0].name).toBe('Bash')
-    // Three-block layout: billing header, identity, rest
-    expect(parsedBody.system).toHaveLength(3)
-    expect(parsedBody.system[0].text).toContain('x-anthropic-billing-header')
-    expect(parsedBody.system[1].text).toBe(
-      "You are a Claude agent, built on Anthropic's Claude Agent SDK.",
-    )
-    expect(parsedBody.system[2].text).toBe('You are a helpful assistant.')
-    // User message is untouched
-    expect(parsedBody.messages[0].content).toBe('hello world test message')
+    expect(capturedBody).toBe(body)
   })
 
   test('fetch wrapper refreshes expired token', async () => {
@@ -365,7 +355,7 @@ describe('auth.loader', () => {
     expect(tokenRefreshCalls).toBe(1)
   })
 
-  test('fetch wrapper maps tool names from streaming response', async () => {
+  test('fetch wrapper returns streaming response unchanged', async () => {
     const encoder = new TextEncoder()
     const responseStream = new ReadableStream({
       start(controller) {
@@ -403,8 +393,8 @@ describe('auth.loader', () => {
     )
 
     const text = await response.text()
-    expect(text).toContain('"name": "todowrite"')
-    expect(text).not.toContain('TodoWrite')
+    expect(text).toContain('"name":"TodoWrite"')
+    expect(text).not.toContain('"name": "todowrite"')
   })
 
   test('concurrent expired token refresh should deduplicate to a single token request', async () => {

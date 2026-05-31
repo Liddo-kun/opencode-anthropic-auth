@@ -2,10 +2,8 @@ import type { Plugin } from '@opencode-ai/plugin'
 import { authorize, exchange } from './auth.ts'
 import { CLIENT_ID, TOKEN_URL } from './constants.ts'
 import {
-  createStrippedStream,
   isInsecure,
   mergeHeaders,
-  rewriteRequestBody,
   rewriteUrl,
   setOAuthHeaders,
 } from './transform.ts'
@@ -143,21 +141,15 @@ export const AnthropicAuthPlugin: Plugin = async ({ client }) => {
               // biome-ignore lint/style/noNonNullAssertion: access is guaranteed set above
               setOAuthHeaders(requestHeaders, auth.access!)
 
-              let body = init?.body
-              if (body && typeof body === 'string') {
-                body = rewriteRequestBody(body)
-              }
-
               const rewritten = rewriteUrl(input)
 
               const response = await fetch(rewritten.input, {
                 ...init,
-                body,
                 headers: requestHeaders,
                 ...(isInsecure() && { tls: { rejectUnauthorized: false } }),
               })
 
-              return createStrippedStream(response)
+              return response
             },
           }
         }
