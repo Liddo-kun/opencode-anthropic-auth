@@ -24,4 +24,4 @@ export const REQUIRED_BETAS = [
   'interleaved-thinking-2025-05-14',
 ]
 
-export const USER_AGENT = 'claude-cli/2.1.87 (external, cli)'
+export const USER_AGENT = 'claude-cli/2.1.280 (external, cli)'
