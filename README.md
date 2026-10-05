@@ -1,4 +1,17 @@
-# OpenCode Anthropic Auth Plugin
+# Tandem V2 Anthropic Auth Plugin
+
+This `tandem-v2` worktree uses the new public Promise plugin API. See
+[V2.md](V2.md) for source registration, the Claude Pro/Max login flow, credential
+persistence, refresh coordination and the optional custom-endpoint TLS wrapper.
+
+Register the directory `file:///home/jon/code/opencode-anthropic-auth-v2` in the
+isolated development config. Root `server.ts` selects `src/v2.ts`; no build is
+needed. The daily checkout and its credentials are separate.
+
+## V1 reference documentation
+
+The original package usage and development workflow below describe v1. Follow
+`V2.md` for this branch's configuration and verification.
 
 > [!WARNING]
 > This plugin comes with no guarantees. You might be banned for breaking the TOS, you might not be. I don't work at Anthropic, nor am I an attorney.

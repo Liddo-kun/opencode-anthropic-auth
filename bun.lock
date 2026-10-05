@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "opencode-anthropic-auth",
+      "name": "@ex-machina/opencode-anthropic-auth",
       "devDependencies": {
         "@biomejs/biome": "2.4.15",
         "@changesets/changelog-github": "^0.7.0",
@@ -16,7 +16,9 @@
         "typescript": "6.0.3",
       },
       "peerDependencies": {
-        "@opencode-ai/plugin": "*",
+        "@opencode/ai": "2.0.22",
+        "@opencode/plugin": "2.0.22",
+        "effect": "4.0.0-rc.112",
       },
     },
   },

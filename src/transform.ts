@@ -82,7 +82,7 @@ export function isInsecure(): boolean {
  * Parse ANTHROPIC_BASE_URL from the environment.
  * Returns a valid HTTP(S) URL or null if unset/invalid.
  */
-function resolveBaseUrl(): URL | null {
+export function resolveBaseUrl(): URL | null {
   const raw = process.env.ANTHROPIC_BASE_URL?.trim()
   if (!raw) return null
   try {

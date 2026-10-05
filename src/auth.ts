@@ -58,6 +58,7 @@ async function exchangeCode(
   redirectUri: string,
 ): Promise<ExchangeResult> {
   const result = await fetch(TOKEN_URL, {
+    tls: { rejectUnauthorized: true },
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -72,6 +73,7 @@ async function exchangeCode(
       redirect_uri: redirectUri,
       code_verifier: verifier,
     }),
+    signal: AbortSignal.timeout(30_000),
   })
 
   if (!result.ok) {
@@ -80,17 +82,40 @@ async function exchangeCode(
     }
   }
 
-  const json = (await result.json()) as {
-    refresh_token: string
-    access_token: string
-    expires_in: number
-  }
+  const json = parseTokens(await result.json())
 
   return {
     type: 'success',
     refresh: json.refresh_token,
     access: json.access_token,
     expires: Date.now() + json.expires_in * 1000,
+  }
+}
+
+export function parseTokens(input: unknown): {
+  refresh_token: string
+  access_token: string
+  expires_in: number
+} {
+  if (
+    typeof input !== 'object' ||
+    input === null ||
+    !('refresh_token' in input) ||
+    typeof input.refresh_token !== 'string' ||
+    !input.refresh_token ||
+    !('access_token' in input) ||
+    typeof input.access_token !== 'string' ||
+    !input.access_token ||
+    !('expires_in' in input) ||
+    typeof input.expires_in !== 'number' ||
+    !Number.isFinite(input.expires_in) ||
+    input.expires_in <= 0
+  )
+    throw new Error('Anthropic returned invalid OAuth token information')
+  return {
+    refresh_token: input.refresh_token,
+    access_token: input.access_token,
+    expires_in: input.expires_in,
   }
 }
 

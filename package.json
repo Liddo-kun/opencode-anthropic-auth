@@ -5,16 +5,28 @@
     "type": "git",
     "url": "https://github.com/ex-machina-co/opencode-anthropic-auth"
   },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./src/v2.ts",
+  "types": "./src/v2.ts",
+  "exports": {
+    ".": "./src/v2.ts",
+    "./server": "./server.ts",
+    "./v2": "./src/v2.ts"
+  },
   "engines": {
-    "bun": "1.3.14"
+    "bun": "1.4.2"
   },
   "files": [
-    "dist"
+    "server.ts",
+    "src/v2.ts",
+    "src/auth.ts",
+    "src/pkce.ts",
+    "src/constants.ts",
+    "src/transform.ts",
+    "src/refresh.ts",
+    "src/insecure.ts",
+    "src/insecure-provider.ts"
   ],
   "scripts": {
-    "prepare": "tsc -p tsconfig.build.json",
     "build": "tsc -p tsconfig.build.json",
     "dev": "bun scripts/dev.ts",
     "dev:clean": "bun scripts/dev-clean.ts",
@@ -28,7 +40,9 @@
     "release": "bun run build && bun change publish"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": "*"
+    "@opencode/plugin": "2.0.22",
+    "@opencode/ai": "2.0.22",
+    "effect": "4.0.0-rc.112"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
