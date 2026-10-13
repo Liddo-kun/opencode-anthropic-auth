@@ -24,4 +24,9 @@ export const REQUIRED_BETAS = [
   'interleaved-thinking-2025-05-14',
 ]
 
-export const USER_AGENT = 'claude-cli/2.1.280 (external, cli)'
+/** The Claude Code release whose request fingerprint Claude subscription requests present. */
+export const CLAUDE_CODE_VERSION = '2.1.291'
+
+export const CLAUDE_CODE_BETA = 'claude-code-20250219'
+
+export const USER_AGENT = `claude-cli/${CLAUDE_CODE_VERSION} (external, cli)`

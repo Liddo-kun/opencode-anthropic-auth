@@ -2,6 +2,7 @@ import { Credential, Integration } from '@opencode/plugin'
 import type { Context, Plugin } from '@opencode/plugin/promise/plugin'
 import type { Registration } from '@opencode/plugin/promise/registration'
 import { authorize, exchange } from './auth.ts'
+import { claudeCodeBody, setClaudeCodeHeaders } from './claude-code.ts'
 import { insecureEndpoint, insecureProvider } from './insecure.ts'
 import { refreshOAuth } from './refresh.ts'
 import { rewriteUrl, setOAuthHeaders } from './transform.ts'
@@ -17,6 +18,7 @@ export default {
     const events = new AbortController()
     const insecure = Boolean(insecureEndpoint())
     const wrapped = new Set<string>()
+    const previous = new Map<string, string>()
     let subscription = false
     let stopped = false
 
@@ -147,7 +149,42 @@ export default {
               rewritten.input instanceof Request
                 ? rewritten.input
                 : event.request
-            event.request = new Request(request, { headers })
+            if (
+              request.method !== 'POST' ||
+              !new URL(request.url).pathname.endsWith('/v1/messages')
+            ) {
+              event.request = new Request(request, {
+                headers: setClaudeCodeHeaders(headers, false),
+              })
+              return
+            }
+            const session = await context.session.get({
+              sessionID: event.sessionID,
+            })
+            const presented = claudeCodeBody(await request.clone().text(), {
+              sessionID: event.sessionID,
+              kind: event.kind,
+              subagent: session.parentID !== undefined,
+              previous: previous.get(event.sessionID),
+            })
+            event.request = new Request(request, {
+              headers: setClaudeCodeHeaders(headers, presented.main),
+              body: presented.body,
+            })
+          },
+          scope,
+        ),
+      )
+
+      // Claude Code cites each session's last primary request in the next
+      // billing line.
+      registrations.push(
+        await context.session.hook(
+          'http.response',
+          async (event) => {
+            const id = event.response.headers.get('request-id')
+            if (event.kind === 'primary' && id?.startsWith('req_'))
+              previous.set(event.sessionID, id)
           },
           scope,
         ),

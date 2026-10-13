@@ -19,6 +19,7 @@
     "server.ts",
     "src/v2.ts",
     "src/auth.ts",
+    "src/claude-code.ts",
     "src/pkce.ts",
     "src/constants.ts",
     "src/transform.ts",
