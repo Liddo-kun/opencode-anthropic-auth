@@ -92,6 +92,9 @@ export default {
                       access: result.access,
                       refresh: result.refresh,
                       expires: Math.floor(result.expires),
+                      ...(result.email
+                        ? { metadata: { email: result.email } }
+                        : {}),
                     })
                   })
                   return exchangePromise
@@ -99,7 +102,11 @@ export default {
               }
             },
             refresh: refreshOAuth,
-            label: () => 'Claude Pro/Max',
+            // Accounts are told apart by their email in the accounts list.
+            label: (credential) =>
+              typeof credential.metadata?.email === 'string'
+                ? credential.metadata.email
+                : 'Claude Pro/Max',
           })
         }),
       )

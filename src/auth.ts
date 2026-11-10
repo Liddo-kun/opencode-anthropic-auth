@@ -82,14 +82,31 @@ async function exchangeCode(
     }
   }
 
-  const json = parseTokens(await result.json())
+  const body: unknown = await result.json()
+  const json = parseTokens(body)
 
   return {
     type: 'success',
     refresh: json.refresh_token,
     access: json.access_token,
     expires: Date.now() + json.expires_in * 1000,
+    email: accountEmail(body),
   }
+}
+
+/** The signed-in account's email, which Anthropic returns beside the tokens. */
+function accountEmail(input: unknown) {
+  if (typeof input !== 'object' || input === null || !('account' in input))
+    return undefined
+  const account = input.account
+  if (
+    typeof account !== 'object' ||
+    account === null ||
+    !('email_address' in account)
+  )
+    return undefined
+  const email = account.email_address
+  return typeof email === 'string' && email ? email : undefined
 }
 
 export function parseTokens(input: unknown): {
@@ -144,7 +161,13 @@ export async function authorize(
 }
 
 export type ExchangeResult =
-  | { type: 'success'; refresh: string; access: string; expires: number }
+  | {
+      type: 'success'
+      refresh: string
+      access: string
+      expires: number
+      email?: string
+    }
   | { type: 'failed' }
 
 export async function exchange(
