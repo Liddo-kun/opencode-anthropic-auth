@@ -71,7 +71,7 @@ development dependency for retained v1 source; it is not imported by v2.
 If reinstalling development dependencies, run in the **auth-v2 worktree only**:
 
 ```sh
-/home/jon/.local/share/tandem-v2/toolchain/bun-1.4.2/bin/bun install --frozen-lockfile --ignore-scripts --omit peer
+/home/jon/.local/share/tandem-v2/toolchain/bun-1.4.4/bin/bun install --frozen-lockfile --ignore-scripts --omit peer
 ```
 
 Then restore the three symlinks above before loading v2. Installation can replace
@@ -99,7 +99,7 @@ Master owns isolated server reload and any host build needed for other changes.
 From `/home/jon/code/Tandem-v2`:
 
 ```sh
-/home/jon/.local/share/tandem-v2/toolchain/bun-1.4.2/bin/bun script/tandem-v2.ts cli auth login anthropic --method claude-pro-max --server http://127.0.0.1:4098
+/home/jon/.local/share/tandem-v2/toolchain/bun-1.4.4/bin/bun script/tandem-v2.ts cli auth login anthropic --method claude-pro-max --server http://127.0.0.1:4098
 ```
 
 Jon opens the supplied authorization URL and submits the complete callback URL,
@@ -124,7 +124,7 @@ ANTHROPIC_INSECURE=1
 - Only stock native `@opencode/ai/providers/anthropic` is wrapped. Custom,
   AI-SDK and `anthropic-compatible` packages are not substituted. Insecure OAuth
   requests for these fail explicitly instead of silently ignoring the setting.
-- Requires Bun 1.4.2 and the host's Effect fetch executor. HTTPS retains encryption
+- Requires Bun 1.4.4 and the host's Effect fetch executor. HTTPS retains encryption
   but skips certificate authentication. HTTP itself has no TLS.
 - The final-origin check applies to the initial fetch; redirects internally
   followed by that fetch share its TLS option. Avoid cross-origin redirects if
@@ -141,7 +141,7 @@ One source typecheck succeeded (exit 0) using pinned Bun and the host's actual
 exported contracts:
 
 ```sh
-/home/jon/.local/share/tandem-v2/toolchain/bun-1.4.2/bin/bun /home/jon/code/Tandem-v2/node_modules/@typescript/native-preview/bin/tsgo.js --noEmit -p tsconfig.v2.json
+/home/jon/.local/share/tandem-v2/toolchain/bun-1.4.4/bin/bun /home/jon/code/Tandem-v2/node_modules/@typescript/native-preview/bin/tsgo.js --noEmit -p tsconfig.v2.json
 ```
 
 Log: `/tmp/tandem/v2/auth-v2-typecheck.log`. No tests, builds, login, refresh,
