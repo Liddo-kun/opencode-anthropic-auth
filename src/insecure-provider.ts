@@ -1,9 +1,8 @@
+import { LanguageModel, LLMRequest } from '@opencode/ai/effect'
 import * as Anthropic from '@opencode/ai/providers/anthropic'
-import type { HttpHandler } from '@opencode/ai/route/executor'
-import { LLMRequest } from '@opencode/ai/schema/messages'
-import { LanguageModel } from '@opencode/ai/schema/options'
-import { Effect, Option } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
+import type { HttpHandler } from '@opencode/ai/route'
+import { Effect } from 'effect'
+import { FetchHttpClient } from 'effect/http'
 import { insecureEndpoint } from './insecure.ts'
 
 // Subscription-only entrypoint, selected by v2.ts rather than user configuration.
@@ -52,21 +51,19 @@ export const model: typeof Anthropic.model = (
                           new URL(final.url).origin !== endpoint.origin
                         )
                           return yield* handler(final)
-                        const ambient = Option.getOrUndefined(
-                          yield* Effect.serviceOption(
-                            FetchHttpClient.RequestInit,
-                          ),
-                        )
-                        const init: RequestInit & {
-                          tls: { rejectUnauthorized: false }
-                        } = {
-                          ...ambient,
-                          tls: { rejectUnauthorized: false },
-                        }
+                        // The host's HTTP client provides its own RequestInit, replacing one
+                        // provided here, so the exception wraps the fetch function it calls.
+                        const ambient = yield* FetchHttpClient.Fetch
+                        const insecureFetch = ((input, init) => {
+                          const options: RequestInit & {
+                            tls: { rejectUnauthorized: false }
+                          } = { ...init, tls: { rejectUnauthorized: false } }
+                          return ambient(input, options)
+                        }) as typeof fetch
                         return yield* handler(final).pipe(
                           Effect.provideService(
-                            FetchHttpClient.RequestInit,
-                            init,
+                            FetchHttpClient.Fetch,
+                            insecureFetch,
                           ),
                         )
                       })
