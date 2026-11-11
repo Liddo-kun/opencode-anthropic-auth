@@ -38,7 +38,12 @@ export default {
     }
 
     async function load() {
-      const next = Boolean(await credential())
+      // Resolving refreshes an expiring token, and a refresh that fails (network
+      // down, rejected token) must not fail setup: v2 does not retry a failed
+      // plugin, which would leave this Location without Claude until the server
+      // restarts. Only an OAuth login can fail to resolve, and each request
+      // resolves it again and reports the failure itself.
+      const next = await credential().then(Boolean, () => true)
       const changed = next !== subscription
       subscription = next
       return changed
