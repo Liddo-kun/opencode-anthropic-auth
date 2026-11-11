@@ -114,19 +114,6 @@ function orderToolResults(messages: unknown[]): void {
   }
 }
 
-/**
- * Claude Code marks its tools `eager_input_streaming`, so the API streams a
- * tool call's input as the model writes it instead of in one piece at the end.
- */
-function streamToolInputs(body: JsonObject): void {
-  if (!Array.isArray(body.tools)) return
-  body.tools = body.tools.map((tool: unknown) =>
-    isObject(tool) && isObject(tool.input_schema) && !tool.defer_loading
-      ? { ...tool, eager_input_streaming: true }
-      : tool,
-  )
-}
-
 /** Puts the billing block first in `system`, which follows `model`. */
 function withBilling(body: JsonObject, text: string): JsonObject {
   const block = { type: 'text', text }
@@ -171,7 +158,6 @@ export function claudeCodeBody(
   )
     return { body, main }
   orderToolResults(parsed.messages)
-  streamToolInputs(parsed)
   const user = parsed.messages.find(
     (message) => isObject(message) && message.role === 'user',
   )
